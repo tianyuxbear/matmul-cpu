@@ -33,3 +33,15 @@ target("openblas")
 
     -- link against OpenBLAS
     add_packages("openblas")
+
+target("salykova")
+    set_kind("binary")
+
+    -- header search path
+    add_includedirs("include")
+
+    -- source files under src/
+    add_files("src/optimize/salykova.cpp", "src/utils.cpp")
+
+    -- optimization and CPU-specific flags
+    add_cxflags("-O3", "-march=native", {force = true})
