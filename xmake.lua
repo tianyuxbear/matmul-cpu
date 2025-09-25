@@ -45,3 +45,15 @@ target("salykova")
 
     -- optimization and CPU-specific flags
     add_cxflags("-O3", "-march=native", {force = true})
+
+target("scratch")
+    set_kind("binary")
+
+    -- header search path
+    add_includedirs("include")
+
+    -- source files under src/
+    add_files("src/optimize/scratch.cpp", "src/utils.cpp")
+
+    -- optimization and CPU-specific flags
+    add_cxflags("-O3", "-march=native", {force = true})
