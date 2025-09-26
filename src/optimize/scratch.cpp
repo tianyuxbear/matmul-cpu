@@ -6,11 +6,11 @@
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
 
-#define MC 256
-#define NC 256
-#define KC 256
+#define MC 420
+#define NC 512
+#define KC 768
 
-#define MR 16
+#define MR 30
 #define NR 16
 
 static float blockA_packed[MC * KC] __attribute__((aligned(64)));
@@ -66,7 +66,7 @@ inline void load_accum(float *C, __m512 C_accum[MR], int N, int mr) {
 
 inline void maskload_accum(float *C, __m512 C_accum[MR], int N, int mr, __mmask16 packed_mask) {
     for (int i = 0; i < mr; ++i) {
-        C_accum[i] = _mm512_mask_loadu_ps(C_accum[i], packed_mask, &C[i * N]);
+        C_accum[i] = _mm512_maskz_loadu_ps(packed_mask, &C[i * N]);
     }
 }
 
@@ -108,6 +108,20 @@ inline void fma_loop(float *blockA_packed, float *blockB_packed,
         UNROLL_FMA(13)
         UNROLL_FMA(14)
         UNROLL_FMA(15)
+        UNROLL_FMA(16)
+        UNROLL_FMA(17)
+        UNROLL_FMA(18)
+        UNROLL_FMA(19)
+        UNROLL_FMA(20)
+        UNROLL_FMA(21)
+        UNROLL_FMA(22)
+        UNROLL_FMA(23)
+        UNROLL_FMA(24)
+        UNROLL_FMA(25)
+        UNROLL_FMA(26)
+        UNROLL_FMA(27)
+        UNROLL_FMA(28)
+        UNROLL_FMA(29)
 
 #undef UNROLL_FMA
 
