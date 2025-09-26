@@ -6,8 +6,8 @@
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
 
-#define MC 280
-#define NC 256
+#define MC 840
+#define NC 1024
 #define KC 384
 
 #define MR 14
