@@ -16,6 +16,12 @@
 static float blockA_packed[MC * KC] __attribute__((aligned(64)));
 static float blockB_packed[NC * KC] __attribute__((aligned(64)));
 
+__mmask16 create_mask(int nr) {
+    nr = (nr < 0) ? 0 : (nr > 16) ? 16
+                                  : nr;
+    return _cvtu32_mask16((1u << nr) - 1);
+}
+
 static void pack_panelA(float *A, float *blockA_packed, int mr, int kc, int K) {
     for (int p = 0; p < kc; ++p) {
         for (int i = 0; i < mr; ++i) {
@@ -58,9 +64,21 @@ inline void load_accum(float *C, __m512 C_accum[MR], int N, int mr) {
     }
 }
 
+inline void maskload_accum(float *C, __m512 C_accum[MR], int N, int mr, __mmask16 packed_mask) {
+    for (int i = 0; i < mr; ++i) {
+        C_accum[i] = _mm512_mask_loadu_ps(C_accum[i], packed_mask, &C[i * N]);
+    }
+}
+
 inline void store_accum(float *C, __m512 C_accum[MR], int N, int mr) {
     for (int i = 0; i < mr; ++i) {
         _mm512_storeu_ps(&C[i * N], C_accum[i]);
+    }
+}
+
+inline void maskstore_accum(float *C, __m512 C_accum[MR], int N, int mr, __mmask16 packed_mask) {
+    for (int i = 0; i < mr; ++i) {
+        _mm512_mask_storeu_ps(&C[i * N], packed_mask, C_accum[i]);
     }
 }
 
@@ -102,11 +120,20 @@ static inline void micro_kernel(float *blockA_packed, float *blockB_packed,
     __m512 C_accum[MR] = {};
     __m512 a_packedFloat16 = {};
     __m512 b_packedFloat16 = {};
+    __mmask16 packed_mask = {};
 
-    load_accum(C, C_accum, N, mr);
-    fma_loop(blockA_packed, blockB_packed, C_accum, a_packedFloat16,
-             b_packedFloat16, kc);
-    store_accum(C, C_accum, N, mr);
+    if (nr == NR) {
+        load_accum(C, C_accum, N, mr);
+        fma_loop(blockA_packed, blockB_packed, C_accum, a_packedFloat16,
+                 b_packedFloat16, kc);
+        store_accum(C, C_accum, N, mr);
+    } else {
+        packed_mask = create_mask(nr);
+        maskload_accum(C, C_accum, N, mr, packed_mask);
+        fma_loop(blockA_packed, blockB_packed, C_accum, a_packedFloat16,
+                 b_packedFloat16, kc);
+        maskstore_accum(C, C_accum, N, mr, packed_mask);
+    }
 }
 
 // ==================== Scratch impl ==================== //
