@@ -2,7 +2,7 @@
 #include <cstddef>
 
 #define CHECK
-// #undef CHECK
+#undef CHECK
 
 const size_t M = 4096;
 const size_t N = 4096;
