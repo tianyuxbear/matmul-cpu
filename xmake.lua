@@ -57,3 +57,15 @@ target("scratch")
 
     -- optimization and CPU-specific flags
     add_cxflags("-O3", "-march=native", {force = true})
+
+target("scratch_unroll")
+    set_kind("binary")
+
+    -- header search path
+    add_includedirs("include")
+
+    -- source files under src/
+    add_files("src/optimize/scratch_unroll.cpp", "src/kernel/kernel.cpp", "src/utils.cpp")
+
+    -- optimization and CPU-specific flags
+    add_cxflags("-O3", "-march=native", {force = true})
