@@ -87,16 +87,16 @@ inline void maskstore_accum(float *C, __m512 C_accum[MR][2], int N, int mr, __mm
 }
 
 inline void fma_loop(float *blockA_packed, float *blockB_packed,
-                     __m512 C_accum[MR][2], __m512 a_packedFloat16,
-                     __m512 b0_packedFloat16, __m512 b1_packedFloat16, int kc) {
+                     __m512 C_accum[MR][2], __m512 *a_packedFloat16,
+                     __m512 *b0_packedFloat16, __m512 *b1_packedFloat16, int kc) {
     for (int p = 0; p < kc; ++p) {
-        b0_packedFloat16 = _mm512_loadu_ps(blockB_packed);
-        b1_packedFloat16 = _mm512_loadu_ps(blockB_packed + 16);
+        *b0_packedFloat16 = _mm512_loadu_ps(blockB_packed);
+        *b1_packedFloat16 = _mm512_loadu_ps(blockB_packed + 16);
 
-#define UNROLL_FMA(i)                                                                  \
-    a_packedFloat16 = _mm512_set1_ps(blockA_packed[i]);                                \
-    C_accum[i][0] = _mm512_fmadd_ps(a_packedFloat16, b0_packedFloat16, C_accum[i][0]); \
-    C_accum[i][1] = _mm512_fmadd_ps(a_packedFloat16, b1_packedFloat16, C_accum[i][1]);
+#define UNROLL_FMA(i)                                                                    \
+    *a_packedFloat16 = _mm512_set1_ps(blockA_packed[i]);                                 \
+    C_accum[i][0] = _mm512_fmadd_ps(*a_packedFloat16, *b0_packedFloat16, C_accum[i][0]); \
+    C_accum[i][1] = _mm512_fmadd_ps(*a_packedFloat16, *b1_packedFloat16, C_accum[i][1]);
 
         UNROLL_FMA(0)
         UNROLL_FMA(1)
@@ -130,15 +130,15 @@ static inline void micro_kernel(float *blockA_packed, float *blockB_packed,
 
     if (nr == NR) {
         load_accum(C, C_accum, N, mr);
-        fma_loop(blockA_packed, blockB_packed, C_accum, a_packedFloat16,
-                 b0_packedFloat16, b1_packedFloat16, kc);
+        fma_loop(blockA_packed, blockB_packed, C_accum, &a_packedFloat16,
+                 &b0_packedFloat16, &b1_packedFloat16, kc);
         store_accum(C, C_accum, N, mr);
     } else {
         packed_mask_0 = create_mask(nr);
         packed_mask_1 = create_mask(nr - 16);
         maskload_accum(C, C_accum, N, mr, packed_mask_0, packed_mask_1);
-        fma_loop(blockA_packed, blockB_packed, C_accum, a_packedFloat16,
-                 b0_packedFloat16, b1_packedFloat16, kc);
+        fma_loop(blockA_packed, blockB_packed, C_accum, &a_packedFloat16,
+                 &b0_packedFloat16, &b1_packedFloat16, kc);
         maskstore_accum(C, C_accum, N, mr, packed_mask_0, packed_mask_1);
     }
 }
