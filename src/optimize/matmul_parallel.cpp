@@ -1,16 +1,19 @@
 #include "utils.h"
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <immintrin.h>
+#include <omp.h>
 
 #define MR 16
 #define NR 6
 
-#define MC MR * 40
-#define NC NR * 200
+#define NTHREADS 24
+#define MC MR *NTHREADS * 5
+#define NC NR *NTHREADS * 50
 #define KC 500
+
+#define OMP_PRAGMA_PARALLEL _Pragma("omp parallel for num_threads(NTHREADS)")
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
 
@@ -33,6 +36,7 @@ void pack_panelB(float *B, float *blockB_packed, int nr, int kc, int K) {
 }
 
 void pack_blockB(float *B, float *blockB_packed, int nc, int kc, int K) {
+    OMP_PRAGMA_PARALLEL
     for (int j = 0; j < nc; j += NR) {
         int nr = min(NR, nc - j);
         pack_panelB(&B[j * K], &blockB_packed[j * kc], nr, kc, K);
@@ -51,6 +55,7 @@ void pack_panelA(float *A, float *blockA_packed, int mr, int kc, int M) {
 }
 
 void pack_blockA(float *A, float *blockA_packed, int mc, int kc, int M) {
+    OMP_PRAGMA_PARALLEL
     for (int i = 0; i < mc; i += MR) {
         int mr = min(MR, mc - i);
         pack_panelA(&A[i], &blockA_packed[i * kc], mr, kc, M);
@@ -1489,7 +1494,7 @@ void kernel_16x6_zero_init_accum(float *blockA_packed,
     }
 }
 
-void matmul_micro(float *A, float *B, float *C, int M, int N, int K) {
+void matmul_parallel(float *A, float *B, float *C, int M, int N, int K) {
     for (int j = 0; j < N; j += NC) {
         int nc = min(NC, N - j);
         int kc = min(KC, K);
@@ -1497,6 +1502,7 @@ void matmul_micro(float *A, float *B, float *C, int M, int N, int K) {
         for (int i = 0; i < M; i += MC) {
             int mc = min(MC, M - i);
             pack_blockA(&A[i], blockA_packed, mc, kc, M);
+            OMP_PRAGMA_PARALLEL
             for (int jr = 0; jr < nc; jr += NR) {
                 int nr = min(NR, nc - jr);
                 for (int ir = 0; ir < mc; ir += MR) {
@@ -1517,6 +1523,7 @@ void matmul_micro(float *A, float *B, float *C, int M, int N, int K) {
             for (int i = 0; i < M; i += MC) {
                 int mc = min(MC, M - i);
                 pack_blockA(&A[p * M + i], blockA_packed, mc, kc, M);
+                OMP_PRAGMA_PARALLEL
                 for (int jr = 0; jr < nc; jr += NR) {
                     int nr = min(NR, nc - jr);
                     for (int ir = 0; ir < mc; ir += MR) {
@@ -1545,13 +1552,15 @@ int main(int argc, char **argv) {
     random_matrix(A, M, K);
     random_matrix(B, N, K);
 
+    omp_set_num_threads(24);
+
     double t1{}, t2{}, time{};
 
     t1 = wall_time();
-    matmul_micro(A, B, C, M, N, K);
+    matmul_parallel(A, B, C, M, N, K);
     t2 = wall_time();
     time = (t2 - t1);
-    printf("Salykova:  %.6f s,  Perf: %.2f GFLOPS\n", time,
+    printf("matmul_parallel:  %.6f s,  Perf: %.2f GFLOPS\n", time,
            FLOPs / (time * 1e9));
 
     free(A);
