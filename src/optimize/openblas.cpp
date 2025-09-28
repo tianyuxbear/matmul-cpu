@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
     random_matrix(A, M, K);
     random_matrix(B, N, K);
 
-    openblas_set_num_threads(1);
+    openblas_set_num_threads(24);
 
     double t1{}, t2{}, time{};
     t1 = wall_time();

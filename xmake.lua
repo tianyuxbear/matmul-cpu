@@ -57,3 +57,19 @@ target("scratch")
 
     -- optimization and CPU-specific flags
     add_cxflags("-O3", "-march=native", {force = true})
+
+
+target("scratch_omp")
+    set_kind("binary")
+
+    -- header search path
+    add_includedirs("include")
+
+    -- source files under src/
+    add_files("src/optimize/scratch_omp.cpp", "src/utils.cpp")
+
+    -- optimization and CPU-specific flags
+    add_cxflags("-O3", "-march=native", "-fopenmp", {force = true})
+
+    -- link flags: keep -fopenmp for the linker as well
+    add_ldflags("-fopenmp", {force = true})
