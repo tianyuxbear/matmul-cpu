@@ -73,27 +73,27 @@ target("matmul_parallel")
     -- link flags: keep -fopenmp for the linker as well
     add_ldflags("-fopenmp", {force = true})
 
-target("scratch")
+target("scratch_cache")
     set_kind("binary")
 
     -- header search path
     add_includedirs("include")
 
     -- source files under src/
-    add_files("src/optimize/scratch.cpp", "src/utils.cpp")
+    add_files("src/optimize/scratch_cache.cpp", "src/utils.cpp")
 
     -- optimization and CPU-specific flags
     add_cxflags("-O3", "-march=native", {force = true})
 
 
-target("scratch_omp")
+target("scratch_parallel")
     set_kind("binary")
 
     -- header search path
     add_includedirs("include")
 
     -- source files under src/
-    add_files("src/optimize/scratch_omp.cpp", "src/utils.cpp")
+    add_files("src/optimize/scratch_parallel.cpp", "src/utils.cpp")
 
     -- optimization and CPU-specific flags
     add_cxflags("-O3", "-march=native", "-fopenmp", {force = true})

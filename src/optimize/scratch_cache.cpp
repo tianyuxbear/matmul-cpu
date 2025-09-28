@@ -3,22 +3,22 @@
 #include <cstdlib>
 #include <cstring>
 #include <immintrin.h>
-#include <omp.h>
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
+#define MR 14
+#define NR 32
+
 #define MC 840
 #define NC 1024
 #define KC 384
 
-#define MR 14
-#define NR 32
 
-static thread_local float blockA_thread[MC * KC] __attribute__((aligned(64)));
-static thread_local float blockB_thread[NC * KC] __attribute__((aligned(64)));
+static float blockA_packed[MC * KC] __attribute__((aligned(64)));
+static float blockB_packed[NC * KC] __attribute__((aligned(64)));
 
 static inline __mmask16 create_mask(int nr) {
     nr = (nr < 0) ? 0 : (nr > 16) ? 16
@@ -28,8 +28,12 @@ static inline __mmask16 create_mask(int nr) {
 
 static inline void pack_panelA(float *A, float *blockA_packed, int mr, int kc, int K) {
     for (int p = 0; p < kc; ++p) {
-        for (int i = 0; i < mr; ++i) { *blockA_packed++ = A[i * K + p]; }
-        for (int i = mr; i < MR; ++i) { *blockA_packed++ = 0; }
+        for (int i = 0; i < mr; ++i) {
+            *blockA_packed++ = A[i * K + p];
+        }
+        for (int i = mr; i < MR; ++i) {
+            *blockA_packed++ = 0;
+        }
     }
 }
 
@@ -43,8 +47,12 @@ static inline void pack_blockA(float *A, float *blockA_packed, int mc, int kc, i
 static inline void pack_panelB(float *B, float *blockB_packed, int nr, int kc, int K) {
 
     for (int p = 0; p < kc; ++p) {
-        for (int j = 0; j < nr; ++j) { *blockB_packed++ = B[j * K + p]; }
-        for (int j = nr; j < NR; ++j) { *blockB_packed++ = 0; }
+        for (int j = 0; j < nr; ++j) {
+            *blockB_packed++ = B[j * K + p];
+        }
+        for (int j = nr; j < NR; ++j) {
+            *blockB_packed++ = 0;
+        }
     }
 }
 static inline void pack_blockB(float *B, float *blockB_packed, int nc, int kc, int K) {
@@ -82,7 +90,9 @@ static inline void maskstore_accum(float *C, __m512 C_accum[MR][2], int N, int m
     }
 }
 
-static inline void fma_loop(float *blockA_packed, float *blockB_packed, __m512 C_accum[MR][2], __m512 *a_packedFloat16, __m512 *b0_packedFloat16, __m512 *b1_packedFloat16, int kc) {
+static inline void fma_loop(float *blockA_packed, float *blockB_packed,
+                            __m512 C_accum[MR][2], __m512 *a_packedFloat16,
+                            __m512 *b0_packedFloat16, __m512 *b1_packedFloat16, int kc) {
     for (int p = 0; p < kc; ++p) {
         *b0_packedFloat16 = _mm512_loadu_ps(blockB_packed);
         *b1_packedFloat16 = _mm512_loadu_ps(blockB_packed + 16);
@@ -113,7 +123,8 @@ static inline void fma_loop(float *blockA_packed, float *blockB_packed, __m512 C
         blockB_packed += NR;
     }
 }
-static inline void micro_kernel(float *blockA_packed, float *blockB_packed, float *C, int mr, int nr, int kc, int N) {
+static inline void micro_kernel(float *blockA_packed, float *blockB_packed,
+                                float *C, int mr, int nr, int kc, int N) {
     __m512 C_accum[MR][2];
     __m512 a_packedFloat16 = {};
     __m512 b0_packedFloat16 = {};
@@ -123,46 +134,40 @@ static inline void micro_kernel(float *blockA_packed, float *blockB_packed, floa
 
     if (likely(nr == NR)) {
         load_accum(C, C_accum, N, mr);
-        fma_loop(blockA_packed, blockB_packed, C_accum, &a_packedFloat16, &b0_packedFloat16, &b1_packedFloat16, kc);
+        fma_loop(blockA_packed, blockB_packed, C_accum, &a_packedFloat16,
+                 &b0_packedFloat16, &b1_packedFloat16, kc);
         store_accum(C, C_accum, N, mr);
     } else {
         packed_mask_0 = create_mask(nr);
         packed_mask_1 = create_mask(nr - 16);
         maskload_accum(C, C_accum, N, mr, packed_mask_0, packed_mask_1);
-        fma_loop(blockA_packed, blockB_packed, C_accum, &a_packedFloat16, &b0_packedFloat16, &b1_packedFloat16, kc);
+        fma_loop(blockA_packed, blockB_packed, C_accum, &a_packedFloat16,
+                 &b0_packedFloat16, &b1_packedFloat16, kc);
         maskstore_accum(C, C_accum, N, mr, packed_mask_0, packed_mask_1);
     }
 }
 
-// ==================== Scratch impl ==================== //
+// ==================== scratch_cache impl ==================== //
 // C = A * B^T + C, all row-major
 // C: [M, N]
 // A: [M, K]
 // B: [N, K]
-void matmul_avx512_optimized(float *A, float *B, float *C, int M, int N, int K) {
-#pragma omp parallel num_threads(24)
-    {
-        // 每个线程创建自己的私有缓冲区
-        // float blockA_packed[MC * KC] __attribute__((aligned(64)));
-        // float blockB_packed[NC * KC] __attribute__((aligned(64)));
-        float *blockA_packed = blockA_thread;
-        float *blockB_packed = blockB_thread;
-
-#pragma omp for collapse(2) schedule(dynamic)
-        for (int j = 0; j < N; j += NC) {
-            for (int p = 0; p < K; p += KC) {
-                int nc = min(NC, N - j);
-                int kc = min(KC, K - p);
-                pack_blockB(&B[j * K + p], blockB_packed, nc, kc, K);
-                for (int i = 0; i < M; i += MC) {
-                    int mc = min(MC, M - i);
-                    pack_blockA(&A[i * K + p], blockA_packed, mc, kc, K);
+void matmul_scratch_cache(float *A, float *B, float *C, int M, int N,
+                          int K) {
+    for (int j = 0; j < N; j += NC) {
+        int nc = min(NC, N - j);
+        for (int p = 0; p < K; p += KC) {
+            int kc = min(KC, K - p);
+            pack_blockB(&B[j * K + p], blockB_packed, nc, kc, K);
+            for (int i = 0; i < M; i += MC) {
+                int mc = min(MC, M - i);
+                pack_blockA(&A[i * K + p], blockA_packed, mc, kc, K);
+                for (int jr = 0; jr < nc; jr += NR) {
+                    int nr = min(NR, nc - jr);
                     for (int ir = 0; ir < mc; ir += MR) {
-                        for (int jr = 0; jr < nc; jr += NR) {
-                            int mr = min(MR, mc - ir);
-                            int nr = min(NR, nc - jr);
-                            micro_kernel(&blockA_packed[kc * ir], &blockB_packed[kc * jr], &C[(i + ir) * N + (j + jr)], mr, nr, kc, N);
-                        }
+                        int mr = min(MR, mc - ir);
+                        micro_kernel(&blockA_packed[kc * ir], &blockB_packed[kc * jr],
+                                     &C[(i + ir) * N + (j + jr)], mr, nr, kc, N);
                     }
                 }
             }
@@ -179,14 +184,12 @@ int main(int argc, char **argv) {
     random_matrix(A, M, K);
     random_matrix(B, N, K);
 
-    omp_set_num_threads(24);
-
     double t1{}, t2{}, time{};
     t1 = wall_time();
-    matmul_avx512_optimized(A, B, C, M, N, K);
+    matmul_scratch_cache(A, B, C, M, N, K);
     t2 = wall_time();
     time = t2 - t1;
-    printf("Scratch:  %.6f s,  Perf: %.2f GFLOPS\n", time, FLOPs / (time * 1e9));
+    printf("scratch_cache:  %.6f s,  Perf: %.2f GFLOPS\n", time, FLOPs / (time * 1e9));
 
 #ifdef CHECK
     float *C_ref = (float *)aligned_alloc(32, M * N * sizeof(float));

@@ -9,12 +9,19 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define MC 840
-#define NC 1024
-#define KC 384
-
 #define MR 14
 #define NR 32
+
+// #define MC 840
+// #define NC 1024
+// #define KC 384
+
+#define NTHREADS 24
+#define MC MR *NTHREADS * 5
+#define NC NR *NTHREADS * 30
+#define KC 512
+
+#define OMP_PRAGMA_PARALLEL _Pragma("omp parallel for num_threads(NTHREADS)")
 
 static float blockA_packed[MC * KC] __attribute__((aligned(64)));
 static float blockB_packed[NC * KC] __attribute__((aligned(64)));
@@ -37,6 +44,7 @@ static inline void pack_panelA(float *A, float *blockA_packed, int mr, int kc, i
 }
 
 static inline void pack_blockA(float *A, float *blockA_packed, int mc, int kc, int K) {
+    OMP_PRAGMA_PARALLEL
     for (int i = 0; i < mc; i += MR) {
         int mr = min(MR, mc - i);
         pack_panelA(&A[i * K], &blockA_packed[i * kc], mr, kc, K);
@@ -55,6 +63,7 @@ static inline void pack_panelB(float *B, float *blockB_packed, int nr, int kc, i
     }
 }
 static inline void pack_blockB(float *B, float *blockB_packed, int nc, int kc, int K) {
+    OMP_PRAGMA_PARALLEL
     for (int j = 0; j < nc; j += NR) {
         int nr = min(NR, nc - j);
         pack_panelB(&B[j * K], &blockB_packed[j * kc], nr, kc, K);
@@ -161,10 +170,11 @@ void matmul_avx512_optimized(float *A, float *B, float *C, int M, int N,
             for (int i = 0; i < M; i += MC) {
                 int mc = min(MC, M - i);
                 pack_blockA(&A[i * K + p], blockA_packed, mc, kc, K);
-                for (int ir = 0; ir < mc; ir += MR) {
-                    for (int jr = 0; jr < nc; jr += NR) {
+                OMP_PRAGMA_PARALLEL
+                for (int jr = 0; jr < nc; jr += NR) {
+                    int nr = min(NR, nc - jr);
+                    for (int ir = 0; ir < mc; ir += MR) {
                         int mr = min(MR, mc - ir);
-                        int nr = min(NR, nc - jr);
                         micro_kernel(&blockA_packed[kc * ir], &blockB_packed[kc * jr],
                                      &C[(i + ir) * N + (j + jr)], mr, nr, kc, N);
                     }
@@ -188,7 +198,7 @@ int main(int argc, char **argv) {
     matmul_avx512_optimized(A, B, C, M, N, K);
     t2 = wall_time();
     time = t2 - t1;
-    printf("Scratch:  %.6f s,  Perf: %.2f GFLOPS\n", time, FLOPs / (time * 1e9));
+    printf("Scratch_parallel:  %.6f s,  Perf: %.2f GFLOPS\n", time, FLOPs / (time * 1e9));
 
 #ifdef CHECK
     float *C_ref = (float *)aligned_alloc(32, M * N * sizeof(float));
