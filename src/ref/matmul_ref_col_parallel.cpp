@@ -1,18 +1,29 @@
-#include "utils.h"
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+/**
+ * This file is largely derived from:
+ *   https://github.com/salykova/sgemm.c/blob/main/tutorial/matmul_parallel.h
+ *
+ * Minimal modifications were made for integration purposes only.
+ */
+
+#include "matmul.hpp"
+#include "utils.hpp"
+
 #include <immintrin.h>
+#include <omp.h>
+
+namespace ref {
+
+namespace {
 
 #define MR 16
 #define NR 6
 
-#define MC MR * 40
-#define NC NR * 200
+#define NTHREADS 24
+#define MC MR * NTHREADS * 5
+#define NC NR * NTHREADS * 50
 #define KC 500
 
-#define min(x, y) ((x) < (y) ? (x) : (y))
+#define OMP_PRAGMA_PARALLEL _Pragma("omp parallel for num_threads(NTHREADS)")
 
 static float blockA_packed[MC * KC] __attribute__((aligned(64)));
 static float blockB_packed[NC * KC] __attribute__((aligned(64)));
@@ -33,8 +44,9 @@ void pack_panelB(float *B, float *blockB_packed, int nr, int kc, int K) {
 }
 
 void pack_blockB(float *B, float *blockB_packed, int nc, int kc, int K) {
+    OMP_PRAGMA_PARALLEL
     for (int j = 0; j < nc; j += NR) {
-        int nr = min(NR, nc - j);
+        int nr = MIN(NR, nc - j);
         pack_panelB(&B[j * K], &blockB_packed[j * kc], nr, kc, K);
     }
 }
@@ -51,8 +63,9 @@ void pack_panelA(float *A, float *blockA_packed, int mr, int kc, int M) {
 }
 
 void pack_blockA(float *A, float *blockA_packed, int mc, int kc, int M) {
+    OMP_PRAGMA_PARALLEL
     for (int i = 0; i < mc; i += MR) {
-        int mr = min(MR, mc - i);
+        int mr = MIN(MR, mc - i);
         pack_panelA(&A[i], &blockA_packed[i * kc], mr, kc, M);
     }
 }
@@ -1488,19 +1501,21 @@ void kernel_16x6_zero_init_accum(float *blockA_packed,
         }
     }
 }
+} // namespace
 
-void matmul_micro(float *A, float *B, float *C, int M, int N, int K) {
+void matmul_ref_col_parallel(float *A, float *B, float *C, int M, int N, int K) {
     for (int j = 0; j < N; j += NC) {
-        int nc = min(NC, N - j);
-        int kc = min(KC, K);
+        int nc = MIN(NC, N - j);
+        int kc = MIN(KC, K);
         pack_blockB(&B[j * K], blockB_packed, nc, kc, K);
         for (int i = 0; i < M; i += MC) {
-            int mc = min(MC, M - i);
+            int mc = MIN(MC, M - i);
             pack_blockA(&A[i], blockA_packed, mc, kc, M);
+            OMP_PRAGMA_PARALLEL
             for (int jr = 0; jr < nc; jr += NR) {
-                int nr = min(NR, nc - jr);
+                int nr = MIN(NR, nc - jr);
                 for (int ir = 0; ir < mc; ir += MR) {
-                    int mr = min(MR, mc - ir);
+                    int mr = MIN(MR, mc - ir);
                     kernel_16x6_zero_init_accum(&blockA_packed[ir * kc],
                                                 &blockB_packed[jr * kc],
                                                 &C[(j + jr) * M + (i + ir)],
@@ -1512,15 +1527,16 @@ void matmul_micro(float *A, float *B, float *C, int M, int N, int K) {
             }
         }
         for (int p = kc; p < K; p += KC) {
-            int kc = min(KC, K - p);
+            int kc = MIN(KC, K - p);
             pack_blockB(&B[j * K + p], blockB_packed, nc, kc, K);
             for (int i = 0; i < M; i += MC) {
-                int mc = min(MC, M - i);
+                int mc = MIN(MC, M - i);
                 pack_blockA(&A[p * M + i], blockA_packed, mc, kc, M);
+                OMP_PRAGMA_PARALLEL
                 for (int jr = 0; jr < nc; jr += NR) {
-                    int nr = min(NR, nc - jr);
+                    int nr = MIN(NR, nc - jr);
                     for (int ir = 0; ir < mc; ir += MR) {
-                        int mr = min(MR, mc - ir);
+                        int mr = MIN(MR, mc - ir);
                         kernel_16x6_load_accum(&blockA_packed[ir * kc],
                                                &blockB_packed[jr * kc],
                                                &C[(j + jr) * M + (i + ir)],
@@ -1534,28 +1550,4 @@ void matmul_micro(float *A, float *B, float *C, int M, int N, int K) {
         }
     }
 }
-
-// ==================== 主函数 ==================== //
-int main(int argc, char **argv) {
-    float *A = (float *)aligned_alloc(32, M * K * sizeof(float));
-    float *B = (float *)aligned_alloc(32, N * K * sizeof(float));
-    float *C = (float *)aligned_alloc(32, M * N * sizeof(float));
-    memset(C, 0, M * N * sizeof(float));
-
-    random_matrix(A, M, K);
-    random_matrix(B, N, K);
-
-    double t1{}, t2{}, time{};
-
-    t1 = wall_time();
-    matmul_micro(A, B, C, M, N, K);
-    t2 = wall_time();
-    time = (t2 - t1);
-    printf("matmul_micro:  %.6f s,  Perf: %.2f GFLOPS\n", time,
-           FLOPs / (time * 1e9));
-
-    free(A);
-    free(B);
-    free(C);
-    return 0;
-}
+} // namespace ref

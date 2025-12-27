@@ -1,34 +1,34 @@
-#include "utils.h"
-#include <cmath>
-#include <cstddef>
-#include <cstdio>
-#include <cstdlib>
-#include <ctime>
+#include "utils.hpp"
 
-double wall_time() {
-    struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    return t.tv_sec + t.tv_nsec * 1e-9;
-}
+#include <cmath>    // std::abs
+#include <iostream> // std::cerr, std::cout
+#include <random>   // std::mt19937, std::uniform_real_distribution
 
-void random_matrix(float *matrix, const size_t M, const size_t N) {
-    for (int i = 0; i < M * N; i++) {
-        matrix[i] = (float)rand() / RAND_MAX - 0.5f;
+// Fills buffer with random floats in range [-1.0, 1.0]
+void randomize_matrix(float *matrix, size_t elements) {
+    static std::mt19937 gen(42);
+    static std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+    for (size_t i = 0; i < elements; ++i) {
+        matrix[i] = dist(gen);
     }
 }
 
 /* Naive reference implementation for correctness testing (single-threaded)
- * C = A * B^T + C
+ * Operation: C = A * B^T + C
+ * * Dimensions:
  * C: [M, N]
  * A: [M, K]
  * B: [N, K]
+ * * Layout:
+ * Matrices A, B, and C are stored in row-major order.
  */
-void matmul_ref(const float *A, const float *B, float *C, const size_t M,
-                const size_t N, const size_t K) {
-    for (int i = 0; i < M; ++i) {
-        for (int j = 0; j < N; ++j) {
+void matmul_ref(const float *A, const float *B, float *C, size_t M, size_t N, size_t K) {
+    for (size_t i = 0; i < M; ++i) {
+        for (size_t j = 0; j < N; ++j) {
             float sum = 0.0f;
-            for (int k = 0; k < K; ++k) {
+            for (size_t k = 0; k < K; ++k) {
+                // A[i][k] * B[j][k] (Accessing B as N*K row-major)
                 sum += A[i * K + k] * B[j * K + k];
             }
             C[i * N + j] += sum;
@@ -37,22 +37,21 @@ void matmul_ref(const float *A, const float *B, float *C, const size_t M,
 }
 
 /**
- * Check if two float matrices (MxN) are equal within a tolerance.
- * @param ref  Reference matrix (expected values), size M*N
- * @param ans  Actual output matrix, size M*N
- * @param M    Number of rows
- * @param N    Number of columns
- * @param tol  Tolerance for floating-point comparison (default: 1e-5f)
- * @return     0 if all elements match within tolerance, 1 otherwise
+ * Check if two float matrices are equal within a tolerance.
+ * @param ref       Reference matrix (expected values)
+ * @param ans       Actual output matrix
+ * @param elements  Total number of elements to compare (M * N)
+ * @param tol       Tolerance for floating-point comparison (default: 1e-5f)
+ * @return          true if all elements match within tolerance, false otherwise
  */
-void matrix_cmp(const float *ref, const float *ans, const size_t M, const size_t N, const float tol) {
-    const size_t total = M * N;
-    for (size_t i = 0; i < total; ++i) {
-        if (fabsf(ref[i] - ans[i]) > tol) {
-            std::printf("Mismatch at %lu: %f vs %f (diff = %f)\n",
-                        i, ref[i], ans[i], fabsf(ref[i] - ans[i]));
-            return;
+bool verify_matrix(const float *ref, const float *ans, size_t elements, float tol) {
+    for (size_t i = 0; i < elements; ++i) {
+        float diff = std::abs(ref[i] - ans[i]);
+        if (diff > tol) {
+            std::cerr << "Mismatch at " << i << ": ref=" << ref[i]
+                      << ", ans=" << ans[i] << ", diff=" << diff << std::endl;
+            return false;
         }
     }
-    std::printf("PASS\n");
+    return true;
 }
