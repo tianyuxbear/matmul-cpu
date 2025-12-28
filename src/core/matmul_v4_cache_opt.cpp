@@ -49,11 +49,10 @@ static inline __mmask16 create_mask(int remaining) {
 
 /**
  * @brief Packs a panel of Matrix A into contiguous memory.
- * Layout: [KC, MR] (Column-Major within the block).
+ * Layout: [KC, MR] (Row-Major within the block).
  * Goal:   Optimized for broadcasting A elements in the FMA loop.
  */
 static inline void pack_panelA(const float *A, float *packed_ptr, int mr, int kc, int K_stride) {
-    // Iterate over K (outer) then M (inner) -> Transposed/Column-Major packing
     for (int k = 0; k < kc; ++k) {
         for (int i = 0; i < mr; ++i) {
             *packed_ptr++ = A[i * K_stride + k];
