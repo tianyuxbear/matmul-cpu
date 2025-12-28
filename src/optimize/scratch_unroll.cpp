@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
     matmul_avx512_optimized(A, B, C, M, N, K);
     t2 = wall_time();
     time = t2 - t1;
-    printf("Scratch:  %.6f s,  Perf: %.2f GFLOPS\n", time, FLOPs / (time * 1e9));
+    printf("Scratch Unroll:  %.6f s,  Perf: %.2f GFLOPS\n", time, FLOPs / (time * 1e9));
 
 #ifdef CHECK
     float *C_ref = (float *)aligned_alloc(32, M * N * sizeof(float));
