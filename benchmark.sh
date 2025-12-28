@@ -10,10 +10,12 @@
 #   ./benchmark.sh [option]
 #
 # Options:
-#   core    - Run core_v5 benchmark only
-#   blas    - Run blas_row benchmark only
-#   all     - Run both benchmarks (default)
-#   help    - Show this help message
+#   core_v5          - Run core_v5 benchmark only
+#   blas_row         - Run blas_row benchmark only
+#   blas_col         - Run blas_col benchmark only
+#   ref_col_parallel - Run ref_col_parallel benchmark only
+#   all              - Run all benchmarks (default)
+#   help             - Show this help message
 # =============================================================================
 
 # Configuration
@@ -21,26 +23,65 @@ START_N=256
 END_N=8960
 STEP=256
 REPEAT=10
+OPENBLAS_THREADS=24
 
-# Run core_v5 benchmark
-run_core_v5() {
-    echo "========== Running core_v5 benchmark =========="
+# Generic function to run a single kernel benchmark
+# Usage: run_kernel <kernel_name> [use_openblas_threads]
+run_kernel() {
+    local kernel=$1
+    local use_openblas=${2:-false}
+
+    echo "========== Running $kernel benchmark =========="
+    
+    # Set OpenBLAS threads if required
+    if [ "$use_openblas" = true ]; then
+        export OPENBLAS_NUM_THREADS=$OPENBLAS_THREADS
+        echo "[INFO] OPENBLAS_NUM_THREADS=$OPENBLAS_THREADS"
+    fi
+
     for N in $(seq $START_N $STEP $END_N); do
-        echo "[core_v5] N=$N"
-        xmake run main -k core_v5 -r $REPEAT $N
+        echo "[$kernel] N=$N"
+        xmake run main -k $kernel -r $REPEAT $N
     done
-    echo "========== core_v5 benchmark completed =========="
+
+    echo "========== $kernel benchmark completed =========="
 }
 
-# Run blas_row benchmark
+# Wrapper functions for each kernel
+run_core_v5() {
+    run_kernel "core_v5" false
+}
+
 run_blas_row() {
-    export OPENBLAS_NUM_THREADS=24
-    echo "========== Running blas_row benchmark =========="
-    for N in $(seq $START_N $STEP $END_N); do
-        echo "[blas_row] N=$N"
-        xmake run main -k blas_row -r $REPEAT $N
-    done
-    echo "========== blas_row benchmark completed =========="
+    run_kernel "blas_row" true
+}
+
+run_blas_col() {
+    export OPENBLAS_CORETYPE=Haswell 
+    export OPENBLAS_VERBOSE=2
+    run_kernel "blas_col" true
+}
+
+run_ref_col_parallel() {
+    run_kernel "ref_col_parallel" false
+}
+
+# Run all benchmarks
+run_all() {
+    echo "Starting all benchmarks..."
+    echo "N range: $START_N to $END_N (step: $STEP)"
+    echo ""
+
+    run_core_v5
+    echo ""
+    run_blas_row
+    echo ""
+    run_blas_col
+    echo ""
+    run_ref_col_parallel
+
+    echo ""
+    echo "All benchmarks completed!"
 }
 
 # Display help message
@@ -48,14 +89,17 @@ show_help() {
     echo "Usage: $0 [option]"
     echo ""
     echo "Options:"
-    echo "  core    - Run core_v5 benchmark only"
-    echo "  blas    - Run blas_row benchmark only"
-    echo "  all     - Run both benchmarks (default)"
-    echo "  help    - Show this help message"
+    echo "  core_v5          - Run core_v5 benchmark only"
+    echo "  blas_row         - Run blas_row benchmark only"
+    echo "  blas_col         - Run blas_col benchmark only"
+    echo "  ref_col_parallel - Run ref_col_parallel benchmark only"
+    echo "  all              - Run all benchmarks (default)"
+    echo "  help             - Show this help message"
     echo ""
     echo "Configuration:"
-    echo "  N range: $START_N to $END_N (step: $STEP)"
-    echo "  Repeat:  $REPEAT times per test"
+    echo "  N range:         $START_N to $END_N (step: $STEP)"
+    echo "  Repeat:          $REPEAT times per test"
+    echo "  OpenBLAS threads: $OPENBLAS_THREADS (for blas_row, blas_col)"
 }
 
 # Main entry point
@@ -63,21 +107,20 @@ main() {
     local option="${1:-all}"
     
     case "$option" in
-        core)
+        core_v5)
             run_core_v5
             ;;
-        blas)
+        blas_row)
             run_blas_row
+            ;;
+        blas_col)
+            run_blas_col
+            ;;
+        ref_col_parallel)
+            run_ref_col_parallel
             ;;
         all)
-            echo "Starting all benchmarks..."
-            echo "N range: $START_N to $END_N (step: $STEP)"
-            echo ""
-            run_core_v5
-            echo ""
-            run_blas_row
-            echo ""
-            echo "All benchmarks completed!"
+            run_all
             ;;
         help|--help|-h)
             show_help
